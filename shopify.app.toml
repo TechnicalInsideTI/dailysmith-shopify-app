@@ -1,0 +1,35 @@
+# Shopify CLI app configuration: what `shopify app config link` and
+# `shopify app deploy` push to the Partner Dashboard. Replace the two
+# placeholders with the app's client id and its public URL.
+#
+# The app uses Shopify managed installation (use_legacy_install_flow = false):
+# Shopify collects the scopes below at install time and the app exchanges the
+# embedded page's session token for an offline access token on first use.
+#
+# app/uninstalled is not listed here on purpose. The Express integration
+# registers it shop-specifically after the first authenticated request, and
+# subscribing here too would deliver every uninstall twice. The three
+# compliance topics cannot be registered from code, so they live here.
+client_id = "REPLACE_WITH_CLIENT_ID"
+name = "DailySmith"
+handle = "dailysmith"
+application_url = "https://REPLACE_WITH_APP_HOST"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = false
+include_config_on_deploy = true
+
+[access_scopes]
+scopes = "read_content,write_content"
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = ["https://REPLACE_WITH_APP_HOST/api/auth/callback"]
+
+[webhooks]
+api_version = "2026-01"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+  uri = "/api/webhooks"

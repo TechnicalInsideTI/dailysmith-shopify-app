@@ -1,0 +1,84 @@
+name: release
+
+# A merge to main that bumps package.json's version is a release. Once CI is
+# green on that commit, this builds the container image, pushes it to GHCR
+# under the version and `latest`, and publishes a GitHub release tagged
+# v<version> with that version's CHANGELOG.md section as the notes. A version
+# that already has a release is left alone, so workflow_dispatch is a safe
+# re-run.
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: which version, and is it released yet
+        id: version
+        run: |
+          v=$(node -p "require('./package.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/$(echo "$GH_REPO" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+          if gh release view "v$v" --json tagName --jq .tagName > /dev/null 2>&1; then
+            echo "v$v is already released; nothing to do"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "v$v has no release yet; publishing"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: release notes from CHANGELOG.md
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          v='${{ steps.version.outputs.version }}'
+          awk -v v="$v" '
+            $0 == "## " v { on = 1; next }
+            on && /^## / { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "CHANGELOG.md has no '## $v' section" >&2
+            exit 1
+          fi
+          {
+            echo
+            echo "Container image: \`${{ steps.version.outputs.image }}:$v\` (also \`:latest\`). Setup: https://github.com/$GH_REPO#readme"
+          } >> notes.md
+          cat notes.md
+
+      - name: build and push the image
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          v='${{ steps.version.outputs.version }}'
+          image='${{ steps.version.outputs.image }}'
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker build -t "$image:$v" -t "$image:latest" .
+          docker push "$image:$v"
+          docker push "$image:latest"
+
+      - name: publish v${{ steps.version.outputs.version }}
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          v='${{ steps.version.outputs.version }}'
+          gh release create "v$v" --target "$(git rev-parse HEAD)" --title "v$v" --notes-file notes.md
+          echo "published https://github.com/$GH_REPO/releases/tag/v$v"

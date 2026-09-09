@@ -1,0 +1,33 @@
+# Fly.io: one small machine, one volume for the SQLite file. Copy to the
+# repo root as fly.toml, then:
+#   fly launch --no-deploy --copy-config
+#   fly volumes create data --size 1
+#   fly secrets set SHOPIFY_API_KEY=... SHOPIFY_API_SECRET=...
+#   fly deploy
+app = "dailysmith-shopify"
+primary_region = "ams"
+
+[env]
+  PORT = "3000"
+  HOST = "https://dailysmith-shopify.fly.dev"
+  DATABASE_PATH = "/data/dailysmith.sqlite"
+  DAILYSMITH_API_BASE = "https://api.dailysmith.com"
+
+[mounts]
+  source = "data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # The hourly sync runs inside this process, so it must not be stopped when
+  # idle.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    method = "GET"
+    path = "/healthz"

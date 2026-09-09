@@ -1,0 +1,28 @@
+{
+  "name": "dailysmith-shopify-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DailySmith for Shopify: mirrors a DailySmith blog into a Shopify blog on a schedule.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "sync": "node bin/sync.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@shopify/shopify-api": "^14.0.1",
+    "@shopify/shopify-app-express": "^8.0.1",
+    "better-sqlite3": "^13.0.3",
+    "express": "^5.2.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TechnicalInsideTI/dailysmith-shopify-app.git"
+  },
+  "homepage": "https://github.com/TechnicalInsideTI/dailysmith-shopify-app#readme",
+  "bugs": "https://github.com/TechnicalInsideTI/dailysmith-shopify-app/issues"
+}

@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="shopify-api-key" content="__SHOPIFY_API_KEY__">
+<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+<title>DailySmith</title>
+<style>
+  :root { color-scheme: light; --line: #e3e3e3; --muted: #616161; --accent: #303030; --bad: #8e1f0b; --good: #0c5132; }
+  body { margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #303030; background: #f1f1f1; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lede { color: var(--muted); margin: 0 0 20px; }
+  section { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  label { display: block; font-weight: 600; margin: 14px 0 4px; }
+  label:first-of-type { margin-top: 0; }
+  input[type=text], input[type=url], select { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #8a8a8a; border-radius: 8px; font: inherit; }
+  input[disabled] { background: #f6f6f6; color: var(--muted); }
+  .help { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+  button { font: inherit; font-weight: 600; padding: 8px 14px; border-radius: 8px; border: 1px solid #8a8a8a; background: #fff; cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button[disabled] { opacity: .6; cursor: default; }
+  .check { display: flex; gap: 8px; align-items: flex-start; margin-top: 14px; }
+  .check input { margin-top: 4px; }
+  .check label { margin: 0; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 8px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  td:first-child { color: var(--muted); width: 40%; }
+  .notice { padding: 10px 12px; border-radius: 8px; margin-top: 12px; white-space: pre-wrap; }
+  .notice.bad { background: #fff4f2; color: var(--bad); }
+  .notice.good { background: #f0fbf6; color: var(--good); }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>DailySmith</h1>
+  <p class="lede">Publishes your DailySmith blog into this store's blog: on a schedule, new and updated posts are created or refreshed here, with their SEO fields, featured image and styling. Articles you wrote yourself are never touched.</p>
+
+  <section>
+    <h2>Connection</h2>
+    <form id="settings">
+      <label for="apiBase">DailySmith API</label>
+      <input id="apiBase" type="url" disabled>
+      <p class="help" id="apiBaseHelp">The DailySmith API this store syncs from.</p>
+
+      <label for="publicKey">Site key</label>
+      <input id="publicKey" type="text" autocomplete="off" placeholder="pk_…">
+      <p class="help">Your site's public key, from the site page in the DailySmith dashboard. Leaving the field blank keeps the saved key.</p>
+
+      <label for="blogId">Shopify blog to publish into</label>
+      <select id="blogId"></select>
+      <p class="help">Every DailySmith blog on the site is mirrored into this one.</p>
+
+      <label for="authorName">Author shown on new articles</label>
+      <input id="authorName" type="text" maxlength="120">
+      <p class="help">Set once, when an article is created. Updates keep whatever author it has by then.</p>
+
+      <div class="check"><input id="publish" type="checkbox"><label for="publish">Publish articles as they arrive. Unticked, they arrive hidden so you can review them in the admin first. Updates re-apply this.</label></div>
+      <div class="check"><input id="syncEnabled" type="checkbox"><label for="syncEnabled">Scheduled sync (<span id="interval">60</span> min)</label></div>
+
+      <div class="row">
+        <button class="primary" type="submit" id="save">Save</button>
+        <button type="button" id="test">Test connection</button>
+        <button type="button" id="sync">Sync now</button>
+      </div>
+      <div id="notice" hidden></div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Status</h2>
+    <table>
+      <tr><td>Last sync</td><td id="lastSync">—</td></tr>
+      <tr><td>Last result</td><td id="lastResult">—</td></tr>
+      <tr><td>Next scheduled sync</td><td id="nextSync">—</td></tr>
+    </table>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const notice = (text, kind) => { const n = $('notice'); n.textContent = text; n.className = 'notice ' + kind; n.hidden = false; };
+  const toast = (text, isError) => { try { window.shopify?.toast?.show(text, { isError, duration: 5000 }); } catch {} };
+
+  async function call(method, path, body) {
+    const headers = { accept: 'application/json' };
+    // App Bridge issues a session token for the shop this page is embedded
+    // in; the backend exchanges it for an offline access token once.
+    try { headers.authorization = 'Bearer ' + (await window.shopify.idToken()); } catch {}
+    if (body !== undefined) headers['content-type'] = 'application/json';
+    const res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    let json = null;
+    try { json = await res.json(); } catch {}
+    if (!res.ok) throw new Error((json && (json.error || (json.errors || []).join(' '))) || ('HTTP ' + res.status));
+    return json;
+  }
+
+  const ago = (unix) => {
+    if (!unix) return 'Never';
+    const s = Math.max(0, Math.floor(Date.now() / 1000) - unix);
+    if (s < 90) return 'just now';
+    if (s < 3600) return Math.round(s / 60) + ' min ago';
+    if (s < 86400) return Math.round(s / 3600) + ' h ago';
+    return Math.round(s / 86400) + ' d ago';
+  };
+  const until = (unix) => {
+    const s = unix - Math.floor(Date.now() / 1000);
+    if (s <= 60) return 'within a minute';
+    if (s < 3600) return 'in ' + Math.round(s / 60) + ' min';
+    return 'in ' + Math.round(s / 3600) + ' h';
+  };
+
+  function render(v) {
+    $('apiBase').value = v.apiBase || '';
+    $('apiBase').disabled = v.apiBaseLocked;
+    $('apiBaseHelp').textContent = v.apiBaseLocked ? 'The DailySmith API this store syncs from.' : 'Self-hosted DailySmith installs put their own API origin here.';
+    $('publicKey').placeholder = v.publicKeyMasked ? 'Saved: ' + v.publicKeyMasked + ' — leave blank to keep it' : 'pk_…';
+    if (v.blogs) {
+      const sel = $('blogId');
+      sel.innerHTML = '';
+      if (!v.blogs.length) sel.append(new Option('This store has no blog yet — create one under Online Store, Blog posts', ''));
+      for (const b of v.blogs) sel.append(new Option(b.title, b.id));
+      sel.value = v.blogId || (v.blogs[0] && v.blogs[0].id) || '';
+    }
+    $('authorName').value = v.authorName || '';
+    $('publish').checked = !!v.publish;
+    $('syncEnabled').checked = !!v.syncEnabled;
+    $('interval').textContent = v.syncIntervalMinutes || 60;
+    $('lastSync').textContent = ago(v.lastSyncAt);
+    $('lastResult').textContent = v.lastResult || '—';
+    $('nextSync').textContent = v.nextSyncAt ? until(v.nextSyncAt) : (v.configured ? 'Scheduled sync is off' : 'Not configured yet');
+  }
+
+  const busy = (on) => { for (const id of ['save', 'test', 'sync']) $(id).disabled = on; };
+
+  $('settings').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    busy(true);
+    try {
+      const body = { publicKey: $('publicKey').value, blogId: $('blogId').value, authorName: $('authorName').value, publish: $('publish').checked, syncEnabled: $('syncEnabled').checked };
+      if (!$('apiBase').disabled) body.apiBase = $('apiBase').value;
+      const v = await call('PUT', '/api/settings', body);
+      $('publicKey').value = '';
+      render(v);
+      notice('Saved.', 'good'); toast('Saved');
+    } catch (err) { notice(err.message, 'bad'); toast(err.message, true); }
+    busy(false);
+  });
+
+  $('test').addEventListener('click', async () => {
+    busy(true);
+    try {
+      const r = await call('POST', '/api/test');
+      const list = r.blogs.map((b) => b.name + ' (' + b.basePath + ')').join(', ');
+      notice(r.blogs.length ? 'Connected. ' + r.blogs.length + ' blog(s) will sync: ' + list : 'Connected. The site has no blogs yet — create one in the DailySmith dashboard.', 'good');
+    } catch (err) { notice(err.message, 'bad'); }
+    busy(false);
+  });
+
+  $('sync').addEventListener('click', async () => {
+    busy(true);
+    notice('Syncing…', 'good');
+    try {
+      const v = await call('POST', '/api/sync');
+      render(v);
+      notice(v.summary, /error/.test(v.summary) ? 'bad' : 'good');
+    } catch (err) { notice(err.message, 'bad'); }
+    busy(false);
+  });
+
+  call('GET', '/api/settings').then(render).catch((err) => notice(err.message, 'bad'));
+})();
+</script>
+</body>
+</html>
